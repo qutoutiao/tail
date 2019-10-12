@@ -1,63 +1,34 @@
-# API v1 (gopkg.in/hpcloud/tail.v1)
+# Version v1.3.1
 
-## April, 2016
+* Incorporated PR 7: "Fix deadlock when stopping on non-empty file/buffer", 
+fixes upstream issue 93.
 
-* Migrated to godep, as depman is not longer supported
-* Introduced golang vendoring feature
-* Fixed issue [#57](https://github.com/hpcloud/tail/issues/57) related to reopen deleted file 
 
-## July, 2015
+# Version v1.3.0
 
-* Fix inotify watcher leak; remove `Cleanup` (#51)
+* Incorporated changes of unmerged upstream PR 149 by mezzi: "added line num
+to Line struct".
 
-# API v0 (gopkg.in/hpcloud/tail.v0)
+# Version v1.2.1
 
-## June, 2015
+* Incorporated changes of unmerged upstream PR 128 by jadekler: "Compile-able
+code in readme".
+* Incorporated changes of unmerged upstream PR 130 by fgeller: "small change
+to comment wording".
+* Incorporated changes of unmerged upstream PR 133 by sm3142: "removed 
+spurious newlines from log messages".
 
-* Don't return partial lines (PR #40)
-* Use stable version of fsnotify (#46)
+# Version v1.2.0
 
-## July, 2014
+* Incorporated changes of unmerged upstream PR 126 by Code-Hex: "Solved the
+ problem for never return the last line if it's not followed by a newline".
+* Incorporated changes of unmerged upstream PR 131 by StoicPerlman: "Remove
+deprecated os.SEEK consts". The changes bumped the minimal supported Go 
+release to 1.9.
 
-* Fix tail for Windows (PR #36)
+# Version v1.1.0
 
-## May, 2014
+* migration to go modules.
+* release of master branch of the dormant upstream, because it contains 
+fixes and improvement no present in the tagged release.
 
-* Improved rate limiting using leaky bucket (PR #29)
-* Fix odd line splitting (PR #30)
-
-## Apr, 2014
-
-* LimitRate now discards read buffer (PR #28)
-* allow reading of longer lines if MaxLineSize is unset (PR #24)
-* updated deps.json to latest fsnotify (441bbc86b1)
-
-## Feb, 2014
-
-* added `Config.Logger` to suppress library logging
-
-## Nov, 2013
-
-* add Cleanup to remove leaky inotify watches (PR #20)
-
-## Aug, 2013
-
-* redesigned Location field (PR #12)
-* add tail.Tell (PR #14)
-
-## July, 2013
-
-* Rate limiting (PR #10)
-
-## May, 2013
-
-* Detect file deletions/renames in polling file watcher (PR #1)
-* Detect file truncation
-* Fix potential race condition when reopening the file (issue 5)
-* Fix potential blocking of `tail.Stop` (issue 4)
-* Fix uncleaned up ChangeEvents goroutines after calling tail.Stop
-* Support Follow=false
-
-## Feb, 2013
-
-* Initial open source release

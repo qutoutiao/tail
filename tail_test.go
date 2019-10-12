@@ -8,6 +8,7 @@ package tail
 
 import (
 	_ "fmt"
+	"io"
 	"io/ioutil"
 	"os"
 	"strings"
@@ -96,6 +97,15 @@ func TestStop(t *testing.T) {
 	tail.Cleanup()
 }
 
+func TestStopNonEmptyFile(t *testing.T) {
+	tailTest := NewTailTest("maxlinesize", t)
+	tailTest.CreateFile("test.txt", "hello\nthere\nworld\n")
+	tail := tailTest.StartTail("test.txt", Config{})
+	tail.Stop()
+	tail.Cleanup()
+	// success here is if it doesn't panic.
+}
+
 func TestStopAtEOF(t *testing.T) {
 	tailTest := NewTailTest("maxlinesize", t)
 	tailTest.CreateFile("test.txt", "hello\nthere\nworld\n")
@@ -107,6 +117,10 @@ func TestStopAtEOF(t *testing.T) {
 		t.Errorf("Expected to get 'hello', got '%s' instead", line.Text)
 	}
 
+	if line.Num != 1 {
+		t.Errorf("Expected to get 1, got %d instead", line.Num)
+	}
+
 	tailTest.VerifyTailOutput(tail, []string{"there", "world"}, false)
 	tail.StopAtEOF()
 	tailTest.Cleanup(tail, true)
@@ -114,7 +128,7 @@ func TestStopAtEOF(t *testing.T) {
 
 func TestMaxLineSizeFollow(t *testing.T) {
 	// As last file line does not end with newline, it will not be present in tail's output
-	maxLineSize(t, true, "hello\nworld\nfin\nhe", []string{"hel", "lo", "wor", "ld", "fin"})
+	maxLineSize(t, true, "hello\nworld\nfin\nhe", []string{"hel", "lo", "wor", "ld", "fin", "he"})
 }
 
 func TestMaxLineSizeNoFollow(t *testing.T) {
@@ -134,6 +148,7 @@ func TestOver4096ByteLine(t *testing.T) {
 	tailTest.RemoveFile("test.txt")
 	tailTest.Cleanup(tail, true)
 }
+
 func TestOver4096ByteLineWithSetMaxLineSize(t *testing.T) {
 	tailTest := NewTailTest("Over4096ByteLineMaxLineSize", t)
 	testString := strings.Repeat("a", 4097)
@@ -146,6 +161,40 @@ func TestOver4096ByteLineWithSetMaxLineSize(t *testing.T) {
 	<-time.After(100 * time.Millisecond)
 	tailTest.RemoveFile("test.txt")
 	tailTest.Cleanup(tail, true)
+}
+
+func TestReOpenWithCursor(t *testing.T) {
+	delay := 300 * time.Millisecond // account for POLL_DURATION
+	tailTest := NewTailTest("reopen-cursor", t)
+	tailTest.CreateFile("test.txt", "hello\nworld\n")
+	tail := tailTest.StartTail(
+		"test.txt",
+		Config{Follow: true, ReOpen: true, Poll: true})
+	content := []string{"hello", "world", "more", "data", "endofworld"}
+	go tailTest.VerifyTailOutputUsingCursor(tail, content, false)
+
+	// deletion must trigger reopen
+	<-time.After(delay)
+	tailTest.RemoveFile("test.txt")
+	<-time.After(delay)
+	tailTest.CreateFile("test.txt", "hello\nworld\nmore\ndata\n")
+
+	// rename must trigger reopen
+	<-time.After(delay)
+	tailTest.RenameFile("test.txt", "test.txt.rotated")
+	<-time.After(delay)
+	tailTest.CreateFile("test.txt", "hello\nworld\nmore\ndata\nendofworld\n")
+
+	// Delete after a reasonable delay, to give tail sufficient time
+	// to read all lines.
+	<-time.After(delay)
+	tailTest.RemoveFile("test.txt")
+	<-time.After(delay)
+
+	// Do not bother with stopping as it could kill the tomb during
+	// the reading of data written above. Timings can vary based on
+	// test environment.
+	tailTest.Cleanup(tail, false)
 }
 
 func TestLocationFull(t *testing.T) {
@@ -178,7 +227,7 @@ func TestLocationFullDontFollow(t *testing.T) {
 func TestLocationEnd(t *testing.T) {
 	tailTest := NewTailTest("location-end", t)
 	tailTest.CreateFile("test.txt", "hello\nworld\n")
-	tail := tailTest.StartTail("test.txt", Config{Follow: true, Location: &SeekInfo{0, os.SEEK_END}})
+	tail := tailTest.StartTail("test.txt", Config{Follow: true, Location: &SeekInfo{0, io.SeekEnd}})
 	go tailTest.VerifyTailOutput(tail, []string{"more", "data"}, false)
 
 	<-time.After(100 * time.Millisecond)
@@ -195,7 +244,7 @@ func TestLocationMiddle(t *testing.T) {
 	// Test reading from middle.
 	tailTest := NewTailTest("location-middle", t)
 	tailTest.CreateFile("test.txt", "hello\nworld\n")
-	tail := tailTest.StartTail("test.txt", Config{Follow: true, Location: &SeekInfo{-6, os.SEEK_END}})
+	tail := tailTest.StartTail("test.txt", Config{Follow: true, Location: &SeekInfo{-6, io.SeekEnd}})
 	go tailTest.VerifyTailOutput(tail, []string{"world", "more", "data"}, false)
 
 	<-time.After(100 * time.Millisecond)
@@ -228,6 +277,31 @@ func TestReSeekInotify(t *testing.T) {
 
 func TestReSeekPolling(t *testing.T) {
 	reSeek(t, true)
+}
+
+func TestReSeekWithCursor(t *testing.T) {
+	tailTest := NewTailTest("reseek-cursor", t)
+	tailTest.CreateFile("test.txt", "a really long string goes here\nhello\nworld\n")
+	tail := tailTest.StartTail(
+		"test.txt",
+		Config{Follow: true, ReOpen: false, Poll: false})
+
+	go tailTest.VerifyTailOutputUsingCursor(tail, []string{
+		"a really long string goes here", "hello", "world", "but", "not", "me"}, false)
+
+	// truncate now
+	<-time.After(100 * time.Millisecond)
+	tailTest.TruncateFile("test.txt", "skip\nme\nplease\nbut\nnot\nme\n")
+
+	// Delete after a reasonable delay, to give tail sufficient time
+	// to read all lines.
+	<-time.After(100 * time.Millisecond)
+	tailTest.RemoveFile("test.txt")
+
+	// Do not bother with stopping as it could kill the tomb during
+	// the reading of data written above. Timings can vary based on
+	// test environment.
+	tailTest.Cleanup(tail, false)
 }
 
 func TestRateLimiting(t *testing.T) {
@@ -263,20 +337,22 @@ func TestTell(t *testing.T) {
 	tailTest.CreateFile("test.txt", "hello\nworld\nagain\nmore\n")
 	config := Config{
 		Follow:   false,
-		Location: &SeekInfo{0, os.SEEK_SET}}
+		Location: &SeekInfo{0, io.SeekStart}}
 	tail := tailTest.StartTail("test.txt", config)
-	// read noe line
-	<-tail.Lines
+	// read one line
+	line := <-tail.Lines
+	if line.Num != 1 {
+		tailTest.Errorf("expected line to have number 1 but got %d", line.Num)
+	}
 	offset, err := tail.Tell()
 	if err != nil {
 		tailTest.Errorf("Tell return error: %s", err.Error())
 	}
-	tail.Done()
-	// tail.close()
+	tail.Stop()
 
 	config = Config{
 		Follow:   false,
-		Location: &SeekInfo{offset, os.SEEK_SET}}
+		Location: &SeekInfo{offset, io.SeekStart}}
 	tail = tailTest.StartTail("test.txt", config)
 	for l := range tail.Lines {
 		// it may readed one line in the chan(tail.Lines),
@@ -284,11 +360,14 @@ func TestTell(t *testing.T) {
 		if l.Text != "world" && l.Text != "again" {
 			tailTest.Fatalf("mismatch; expected world or again, but got %s",
 				l.Text)
+			if l.Num < 1 || l.Num > 2 {
+				tailTest.Errorf("expected line number to be between 1 and 2 but got %d", l.Num)
+			}
 		}
 		break
 	}
 	tailTest.RemoveFile("test.txt")
-	tail.Done()
+	tail.Stop()
 	tail.Cleanup()
 }
 
@@ -518,7 +597,7 @@ func (t TailTest) StartTail(name string, config Config) *Tail {
 
 func (t TailTest) VerifyTailOutput(tail *Tail, lines []string, expectEOF bool) {
 	defer close(t.done)
-	t.ReadLines(tail, lines)
+	t.ReadLines(tail, lines, false)
 	// It is important to do this if only EOF is expected
 	// otherwise we could block on <-tail.Lines
 	if expectEOF {
@@ -529,27 +608,53 @@ func (t TailTest) VerifyTailOutput(tail *Tail, lines []string, expectEOF bool) {
 	}
 }
 
-func (t TailTest) ReadLines(tail *Tail, lines []string) {
-	for idx, line := range lines {
-		tailedLine, ok := <-tail.Lines
-		if !ok {
-			// tail.Lines is closed and empty.
-			err := tail.Err()
-			if err != nil {
-				t.Fatalf("tail ended with error: %v", err)
+func (t TailTest) VerifyTailOutputUsingCursor(tail *Tail, lines []string, expectEOF bool) {
+	defer close(t.done)
+	t.ReadLines(tail, lines, true)
+	// It is important to do this if only EOF is expected
+	// otherwise we could block on <-tail.Lines
+	if expectEOF {
+		line, ok := <-tail.Lines
+		if ok {
+			t.Fatalf("more content from tail: %+v", line)
+		}
+	}
+}
+
+func (t TailTest) ReadLines(tail *Tail, lines []string, useCursor bool) {
+	cursor := 1
+
+	for _, line := range lines {
+		for {
+			tailedLine, ok := <-tail.Lines
+			if !ok {
+				// tail.Lines is closed and empty.
+				err := tail.Err()
+				if err != nil {
+					t.Fatalf("tail ended with error: %v", err)
+				}
+				t.Fatalf("tail ended early; expecting more: %v", lines[cursor:])
 			}
-			t.Fatalf("tail ended early; expecting more: %v", lines[idx:])
-		}
-		if tailedLine == nil {
-			t.Fatalf("tail.Lines returned nil; not possible")
-		}
-		// Note: not checking .Err as the `lines` argument is designed
-		// to match error strings as well.
-		if tailedLine.Text != line {
-			t.Fatalf(
-				"unexpected line/err from tail: "+
-					"expecting <<%s>>>, but got <<<%s>>>",
-				line, tailedLine.Text)
+			if tailedLine == nil {
+				t.Fatalf("tail.Lines returned nil; not possible")
+			}
+
+			if useCursor && tailedLine.Num < cursor {
+				// skip lines up until cursor
+				continue
+			}
+
+			// Note: not checking .Err as the `lines` argument is designed
+			// to match error strings as well.
+			if tailedLine.Text != line {
+				t.Fatalf(
+					"unexpected line/err from tail: "+
+						"expecting <<%s>>>, but got <<<%s>>>",
+					line, tailedLine.Text)
+			}
+
+			cursor++
+			break
 		}
 	}
 }
