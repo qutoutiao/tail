@@ -1,12 +1,20 @@
-[![Build Status](https://travis-ci.org/hpcloud/tail.svg)](https://travis-ci.org/hpcloud/tail)
-[![Build status](https://ci.appveyor.com/api/projects/status/vrl3paf9md0a7bgk/branch/master?svg=true)](https://ci.appveyor.com/project/Nino-K/tail/branch/master)
+[![Build Status](https://travis-ci.org/nxadm/tail.svg?branch=master)](https://travis-ci.org/nxadm/tail)
+
+This is repo is forked from the dormant upstream repo at
+[hpcloud](https://github.com/hpcloud/tail). This fork adds support for go
+modules, updates the dependencies, adds features and fixes bugs. Go 1.9 is
+the oldest compiler release supported.
 
 # Go package for tail-ing files
 
-A Go package striving to emulate the features of the BSD `tail` program. 
+A Go package striving to emulate the features of the BSD `tail` program.
 
 ```Go
 t, err := tail.TailFile("/var/log/nginx.log", tail.Config{Follow: true})
+if err != nil {
+    panic(err)
+}
+
 for line := range t.Lines {
     fmt.Println(line.Text)
 }
