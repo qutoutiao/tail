@@ -15,9 +15,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hpcloud/tail/ratelimiter"
-	"github.com/hpcloud/tail/util"
-	"github.com/hpcloud/tail/watch"
+	"github.com/qutoutiao/tail/ratelimiter"
+	"github.com/qutoutiao/tail/util"
+	"github.com/qutoutiao/tail/watch"
 	"gopkg.in/tomb.v1"
 )
 
@@ -156,6 +156,15 @@ func (tail *Tail) Tell() (offset int64, err error) {
 
 	offset -= int64(tail.reader.Buffered())
 	return
+}
+
+// FileInfo file stat
+func (tail *Tail) FileInfo() (os.FileInfo, error) {
+	file := tail.file
+	if file == nil {
+		return nil, fmt.Errorf("file is nil")
+	}
+	return file.Stat()
 }
 
 // Stop stops the tailing activity.
