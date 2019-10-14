@@ -389,12 +389,14 @@ func (tail *Tail) waitForChanges() error {
 }
 
 func (tail *Tail) openReader() {
+	tail.lk.Lock()
 	if tail.MaxLineSize > 0 {
 		// add 2 to account for newline characters
 		tail.reader = bufio.NewReaderSize(tail.file, tail.MaxLineSize+2)
 	} else {
 		tail.reader = bufio.NewReader(tail.file)
 	}
+	tail.lk.Unlock()
 }
 
 func (tail *Tail) seekEnd() error {
@@ -407,7 +409,9 @@ func (tail *Tail) seekTo(pos SeekInfo) error {
 		return fmt.Errorf("Seek error on %s: %s", tail.Filename, err)
 	}
 	// Reset the read buffer whenever the file is re-seek'ed
+	tail.lk.Lock()
 	tail.reader.Reset(tail.file)
+	tail.lk.Unlock()
 	return nil
 }
 
