@@ -29,7 +29,7 @@ type Line struct {
 	Text   string
 	Time   time.Time
 	Offset int64
-	Stat   os.FileInfo
+	Stat   *os.FileInfo
 	Err    error // Error from tail
 }
 
@@ -39,7 +39,7 @@ func NewLine(text string, offset int64, stat os.FileInfo) *Line {
 		Text:   text,
 		Time:   time.Now(),
 		Offset: offset,
-		Stat:   stat,
+		Stat:   &stat,
 	}
 }
 
@@ -281,34 +281,29 @@ func (tail *Tail) tailFileSync() {
 				return
 			}
 		}
-
-		line, err := tail.readLine()
-
-		// 获取当前的 offset
-		offset, err = tail.Tell()
-		if err != nil {
-			tail.Kill(err)
-			return
-		}
 		stat, err = tail.file.Stat()
 		if err != nil {
 			tail.Kill(err)
 			return
 		}
+		line, err := tail.readLine()
 		// Process `line` even if err is EOF.
 		if err == nil {
-			cooloff := !tail.sendLine(line, offset, stat)
+			nowOffset, err := tail.Tell()
+			if err != nil {
+				tail.Kill(err)
+				return
+			}
+			cooloff := !tail.sendLine(line, nowOffset, stat)
 			if cooloff {
 				// Wait a second before seeking till the end of
 				// file when rate limit is reached.
 				msg := ("Too much log activity; waiting a second " +
 					"before resuming tailing")
 				tail.Lines <- &Line{
-					Text:   msg,
-					Time:   time.Now(),
-					Offset: offset,
-					Stat:   stat,
-					Err:    errors.New(msg),
+					Text: msg,
+					Time: time.Now(),
+					Err:  errors.New(msg),
 				}
 				select {
 				case <-time.After(time.Second):
@@ -323,7 +318,12 @@ func (tail *Tail) tailFileSync() {
 		} else if err == io.EOF {
 			if !tail.Follow {
 				if line != "" {
-					tail.sendLine(line, offset, stat)
+					nowOffset, err := tail.Tell()
+					if err != nil {
+						tail.Kill(err)
+						return
+					}
+					tail.sendLine(line, nowOffset, stat)
 				}
 				return
 			}
@@ -456,7 +456,7 @@ func (tail *Tail) sendLine(line string, offset int64, stat os.FileInfo) bool {
 			Text:   line,
 			Time:   now,
 			Offset: offset,
-			Stat:   stat,
+			Stat:   &stat,
 		}
 	}
 
