@@ -29,7 +29,7 @@ type Line struct {
 	Text   string
 	Time   time.Time
 	Offset int64
-	Stat   *os.FileInfo
+	Stat   os.FileInfo
 	Err    error // Error from tail
 }
 
@@ -39,7 +39,7 @@ func NewLine(text string, offset int64, stat os.FileInfo) *Line {
 		Text:   text,
 		Time:   time.Now(),
 		Offset: offset,
-		Stat:   &stat,
+		Stat:   stat,
 	}
 }
 
@@ -456,7 +456,7 @@ func (tail *Tail) sendLine(line string, offset int64, stat os.FileInfo) bool {
 			Text:   line,
 			Time:   now,
 			Offset: offset,
-			Stat:   &stat,
+			Stat:   stat,
 		}
 	}
 
