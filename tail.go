@@ -278,7 +278,6 @@ func (tail *Tail) tailFileSync() {
 	var offset int64
 	var nowOffset int64
 	var err error
-	var stat os.FileInfo
 
 	// Read line by line.
 	for {
@@ -297,7 +296,7 @@ func (tail *Tail) tailFileSync() {
 			if !tail.Pipe {
 				nowOffset = offset + int64(len(line)) + 1
 			}
-			cooloff := !tail.sendLine(line, nowOffset, stat)
+			cooloff := !tail.sendLine(line, nowOffset)
 			if cooloff {
 				// Wait a second before seeking till the end of
 				// file when rate limit is reached.
@@ -328,7 +327,7 @@ func (tail *Tail) tailFileSync() {
 							return
 						}
 					}
-					tail.sendLine(line, nowOffset, stat)
+					tail.sendLine(line, nowOffset)
 				}
 				return
 			}
@@ -447,7 +446,7 @@ func (tail *Tail) seekTo(pos SeekInfo) error {
 
 // sendLine sends the line(s) to Lines channel, splitting longer lines
 // if necessary. Return false if rate limit is reached.
-func (tail *Tail) sendLine(line string, offset int64, stat os.FileInfo) bool {
+func (tail *Tail) sendLine(line string, offset int64) bool {
 	now := time.Now()
 	lines := []string{line}
 
@@ -461,7 +460,7 @@ func (tail *Tail) sendLine(line string, offset int64, stat os.FileInfo) bool {
 			Text:   line,
 			Time:   now,
 			Offset: offset,
-			Stat:   stat,
+			Stat:   tail.stat,
 		}
 	}
 
