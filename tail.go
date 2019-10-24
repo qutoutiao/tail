@@ -86,6 +86,7 @@ type Tail struct {
 	Config
 
 	file   *os.File
+	stat   os.FileInfo
 	reader *bufio.Reader
 
 	watcher watch.FileWatcher
@@ -132,6 +133,10 @@ func TailFile(filename string, config Config) (*Tail, error) {
 	if t.MustExist {
 		var err error
 		t.file, err = OpenFile(t.Filename)
+		if err != nil {
+			return nil, err
+		}
+		t.stat, err = t.file.Stat()
 		if err != nil {
 			return nil, err
 		}
@@ -218,6 +223,10 @@ func (tail *Tail) reopen() error {
 			}
 			return fmt.Errorf("Unable to open file %s: %s", tail.Filename, err)
 		}
+		tail.stat, err = tail.file.Stat()
+		if err != nil {
+			return fmt.Errorf("Stat file %s: err:%v", tail.Filename, err)
+		}
 		break
 	}
 	return nil
@@ -267,6 +276,7 @@ func (tail *Tail) tailFileSync() {
 	tail.openReader()
 
 	var offset int64
+	var nowOffset int64
 	var err error
 	var stat os.FileInfo
 
@@ -281,18 +291,11 @@ func (tail *Tail) tailFileSync() {
 				return
 			}
 		}
-		stat, err = tail.file.Stat()
-		if err != nil {
-			tail.Kill(err)
-			return
-		}
 		line, err := tail.readLine()
 		// Process `line` even if err is EOF.
 		if err == nil {
-			nowOffset, err := tail.Tell()
-			if err != nil {
-				tail.Kill(err)
-				return
+			if !tail.Pipe {
+				nowOffset = offset + int64(len(line)) + 1
 			}
 			cooloff := !tail.sendLine(line, nowOffset, stat)
 			if cooloff {
@@ -318,10 +321,12 @@ func (tail *Tail) tailFileSync() {
 		} else if err == io.EOF {
 			if !tail.Follow {
 				if line != "" {
-					nowOffset, err := tail.Tell()
-					if err != nil {
-						tail.Kill(err)
-						return
+					if !tail.Pipe {
+						nowOffset, err = tail.Tell()
+						if err != nil {
+							tail.Kill(err)
+							return
+						}
 					}
 					tail.sendLine(line, nowOffset, stat)
 				}
