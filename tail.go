@@ -5,7 +5,6 @@ package tail
 
 import (
 	"bufio"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -15,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pkg/errors"
 	"github.com/qutoutiao/tail/ratelimiter"
 	"github.com/qutoutiao/tail/util"
 	"github.com/qutoutiao/tail/watch"
@@ -248,28 +248,33 @@ func (tail *Tail) readLine() (string, error) {
 	return line, err
 }
 
-func (tail *Tail) tailFileSync() {
+func (tail *Tail) tailFileSync() (err error) {
 	defer tail.Done()
 	defer tail.close()
+	defer func() {
+		if err != nil {
+			tail.Logger.Printf("tail.Lines will be closed by err: %+v", err)
+		}
+	}()
 
 	if !tail.MustExist {
 		// deferred first open.
-		err := tail.reopen()
+		err = tail.reopen()
 		if err != nil {
 			if err != tomb.ErrDying {
 				tail.Kill(err)
 			}
-			return
+			return errors.WithStack(err)
 		}
 	}
 
 	// Seek to requested location on first open of the file.
 	if tail.Location != nil {
-		_, err := tail.file.Seek(tail.Location.Offset, tail.Location.Whence)
+		_, err = tail.file.Seek(tail.Location.Offset, tail.Location.Whence)
 		tail.Logger.Printf("Seeked %s - %+v\n", tail.Filename, tail.Location)
 		if err != nil {
 			tail.Killf("Seek error on %s: %s", tail.Filename, err)
-			return
+			return errors.WithStack(err)
 		}
 	}
 
@@ -277,7 +282,6 @@ func (tail *Tail) tailFileSync() {
 
 	var offset int64
 	var nowOffset int64
-	var err error
 
 	// Read line by line.
 	for {
@@ -287,10 +291,11 @@ func (tail *Tail) tailFileSync() {
 			offset, err = tail.Tell()
 			if err != nil {
 				tail.Kill(err)
-				return
+				return errors.WithStack(err)
 			}
 		}
-		line, err := tail.readLine()
+		var line string
+		line, err = tail.readLine()
 		// Process `line` even if err is EOF.
 		if err == nil {
 			if !tail.Pipe {
@@ -310,11 +315,11 @@ func (tail *Tail) tailFileSync() {
 				select {
 				case <-time.After(time.Second):
 				case <-tail.Dying():
-					return
+					return errors.WithStack(tail.Err())
 				}
-				if err := tail.seekEnd(); err != nil {
+				if err = tail.seekEnd(); err != nil {
 					tail.Kill(err)
-					return
+					return errors.WithStack(err)
 				}
 			}
 		} else if err == io.EOF {
@@ -324,38 +329,38 @@ func (tail *Tail) tailFileSync() {
 						nowOffset, err = tail.Tell()
 						if err != nil {
 							tail.Kill(err)
-							return
+							return errors.WithStack(err)
 						}
 					}
 					tail.sendLine(line, nowOffset)
 				}
-				return
+				return errors.WithStack(err)
 			}
 
 			if tail.Follow && line != "" {
 				// this has the potential to never return the last line if
 				// it's not followed by a newline; seems a fair trade here
-				err := tail.seekTo(SeekInfo{Offset: offset, Whence: 0})
+				err = tail.seekTo(SeekInfo{Offset: offset, Whence: 0})
 				if err != nil {
 					tail.Kill(err)
-					return
+					return errors.WithStack(err)
 				}
 			}
 
 			// When EOF is reached, wait for more data to become
 			// available. Wait strategy is based on the `tail.watcher`
 			// implementation (inotify or polling).
-			err := tail.waitForChanges()
+			err = tail.waitForChanges()
 			if err != nil {
 				if err != ErrStop {
 					tail.Kill(err)
 				}
-				return
+				return errors.WithStack(err)
 			}
 		} else {
 			// non-EOF error
 			tail.Killf("Error reading %s: %s", tail.Filename, err)
-			return
+			return errors.WithStack(err)
 		}
 
 		select {
@@ -363,7 +368,7 @@ func (tail *Tail) tailFileSync() {
 			if tail.Err() == errStopAtEOF {
 				continue
 			}
-			return
+			return errors.WithStack(tail.Err())
 		default:
 		}
 	}
